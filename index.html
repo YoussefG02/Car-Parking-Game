@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Car Parking Game</title>
+</head>
+
+<body>
+  <canvas id="gameCanvas" width="835" height="470"></canvas>
+
+  <script>
+    // Background image
+    document.documentElement.style.height = "99%";
+    document.body.style.height = "100%";
+
+    document.body.style.backgroundImage = "url('background.png')";
+    document.body.style.backgroundSize = "cover";
+    document.body.style.backgroundRepeat = "no-repeat";
+    document.body.style.backgroundPosition = "center";
+
+    // Canvas
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.style.position = 'absolute';
+    canvas.style.left = '50%';
+    canvas.style.top = '50%';
+    canvas.style.transform = 'translate(-50%, -50%)';
+
+    // Game Images
+    const images = {
+      backgroundSingle: loadImage('singeplayer.png'),
+      backgroundMulti: loadImage('multiplayer.png'),
+      car1: loadImage('car.svg'),
+      car2: loadImage('car2.svg')
+    };
+
+    function loadImage(src) {
+      const img = new Image();
+      img.src = src;
+      return img;
+    }
+
+    // Game States
+    let gameState = "menu"; // menu, playing, win, lose
+    let level = 1;
+    let obstacles = [];
+    let winZones = [];
+    let currentCars = [];
+
+    const controlsP1 = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+    const controlsP2 = { w: false, a: false, s: false, d: false };
+
+    class Car {
+      constructor(image) {
+        this.width = 75;
+        this.height = 70;
+        this.x = 0;
+        this.y = 0;
+        this.speed = 3;
+        this.angle = 0;
+        this.image = image;
+        this.collisionX = 2;
+        this.collisionY = 20;
+        this.collisionWidth = 67;
+        this.collisionHeight = 35;
+      }
+    }
+
+    // Buttons area
+    const buttons = {
+      singlePlayer: { x: 300, y: 180, width: 250, height: 60 },
+      multiPlayer: { x: 300, y: 260, width: 250, height: 60 },
+      backToMenu: { x: 300, y: 320, width: 250, height: 60 },
+      tryAgain: { x: 300, y: 400, width: 250, height: 60 },
+      quitButton: { x: canvas.width - 120, y: 10, width: 100, height: 40 }
+    };
+
+    canvas.addEventListener('click', handleClick);
+    window.addEventListener('keydown', (e) => {
+      if (e.key in controlsP1) controlsP1[e.key] = true;
+      if (e.key.toLowerCase() in controlsP2) controlsP2[e.key.toLowerCase()] = true;
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.key in controlsP1) controlsP1[e.key] = false;
+      if (e.key.toLowerCase() in controlsP2) controlsP2[e.key.toLowerCase()] = false;
+    });
+
+    function handleClick(event) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
+
+      if (gameState === "playing") {
+        if (checkButtonClick(buttons.quitButton, mouseX, mouseY)) {
+          gameState = "menu";
+          return;
+        }
+      }
+
+      if (gameState === "menu") {
+        if (checkButtonClick(buttons.singlePlayer, mouseX, mouseY)) startGame(1);
+        if (checkButtonClick(buttons.multiPlayer, mouseX, mouseY)) startGame(2);
+      }
+      else if (gameState === "win" || gameState === "lose") {
+        if (checkButtonClick(buttons.backToMenu, mouseX, mouseY)) {
+          gameState = "menu";
+        }
+        if (checkButtonClick(buttons.tryAgain, mouseX, mouseY)) {
+          startGame(level);
+        }
+      }
+    }
+
+
+    function checkButtonClick(button, mouseX, mouseY) {
+      return mouseX >= button.x && mouseX <= button.x + button.width &&
+        mouseY >= button.y && mouseY <= button.y + button.height;
+    }
+
+    function startGame(selectedLevel) {
+      level = selectedLevel;
+      resetGame();
+      gameState = "playing";
+    }
+
+    function resetGame() {
+      obstacles = [...(levelObstacles[level] || [])];
+      winZones = [...(levelWinZones[level] || [])];
+      currentCars = [new Car(images.car1)];
+
+      if (level === 1) {
+        currentCars[0].x = 5;
+        currentCars[0].y = 85;
+      }
+      else if (level === 2) {
+        currentCars[0].x = 80;
+        currentCars[0].y = 380;
+        currentCars[0].angle = 11;
+
+        currentCars.push(new Car(images.car2));
+        currentCars[1].x = 680;
+        currentCars[1].y = 380;
+        currentCars[1].angle = 11;
+      }
+    }
+
+    function update() {
+      if (gameState !== "playing") return;
+
+      moveCar(currentCars[0], controlsP1);
+      if (level === 1) {
+        if (checkCollision(currentCars[0])) {
+          gameState = "lose";
+        }
+      }
+      else if (level === 2) {
+        moveCar(currentCars[1], controlsP2);
+        if (checkCollision(currentCars[0])) {
+          gameState = "win";
+          winnerText = "Blue Car wins!";
+        }
+        else if (checkCollision(currentCars[1])) {
+          gameState = "win";
+          winnerText = "Red Car wins!";
+        }
+      }
+
+      if (checkWin()) {
+        if (level === 1) {
+          gameState = "win";
+        } else if (level === 2) {
+          if (checkWinForPlayer(0)) {
+            gameState = "win";
+            winnerText = "Red Car wins!";
+          } else if (checkWinForPlayer(1)) {
+            gameState = "win";
+            winnerText = "Blue Car wins!";
+          }
+        }
+      }
+    }
+
+    function checkWinForPlayer(playerIndex) {
+      const car = currentCars[playerIndex];
+      const winZone = winZones[playerIndex];
+      const carRight = car.x + car.width;
+      const carBottom = car.y + car.height;
+      const winRight = winZone.x + winZone.width;
+      const winBottom = winZone.y + winZone.height;
+
+      return car.x >= winZone.x && carRight <= winRight &&
+        car.y >= winZone.y && carBottom <= winBottom;
+    }
+
+    function moveCar(car, keys) {
+      let dx = 0, dy = 0;
+      if (keys.ArrowUp || keys.w) dy -= 1;
+      if (keys.ArrowDown || keys.s) dy += 1;
+      if (keys.ArrowLeft || keys.a) dx -= 1;
+      if (keys.ArrowRight || keys.d) dx += 1;
+
+      if (dx !== 0 || dy !== 0) {
+        const length = Math.hypot(dx, dy);
+        dx = (dx / length) * car.speed;
+        dy = (dy / length) * car.speed;
+        car.x += dx;
+        car.y += dy;
+        car.angle = Math.atan2(dy, dx);
+      }
+    }
+
+    function checkCollision(car) {
+      const cx = car.x + car.width / 2;
+      const cy = car.y + car.height / 2;
+      const halfWidth = car.collisionWidth / 2;
+      const halfHeight = car.collisionHeight / 2;
+
+      const offsets = [
+        { x: -halfWidth, y: -halfHeight },
+        { x: halfWidth, y: -halfHeight },
+        { x: halfWidth, y: halfHeight },
+        { x: -halfWidth, y: halfHeight }
+      ];
+
+      const corners = offsets.map(offset => {
+        const rotatedX = offset.x * Math.cos(car.angle) - offset.y * Math.sin(car.angle);
+        const rotatedY = offset.x * Math.sin(car.angle) + offset.y * Math.cos(car.angle);
+        return { x: cx + rotatedX, y: cy + rotatedY };
+      });
+
+      for (const corner of corners) {
+        for (const obstacle of obstacles) {
+          if (pointInPolygon(corner, obstacle)) return true;
+        }
+      }
+      return false;
+    }
+
+    function checkWin() {
+      const zone1 = winZones[0];
+      const carRight = currentCars[0].x + currentCars[0].width;
+      const carBottom = currentCars[0].y + currentCars[0].height;
+      const winRight = zone1.x + zone1.width;
+      const winBottom = zone1.y + zone1.height;
+
+      if (
+        currentCars[0].x >= zone1.x && carRight <= winRight &&
+        currentCars[0].y >= zone1.y && carBottom <= winBottom
+      ) return true;
+
+      if (level === 2) {
+        const zone2 = winZones[1];
+        const car2Right = currentCars[1].x + currentCars[1].width;
+        const car2Bottom = currentCars[1].y + currentCars[1].height;
+        const win2Right = zone2.x + zone2.width;
+        const win2Bottom = zone2.y + zone2.height;
+
+        if (
+          currentCars[1].x >= zone2.x && car2Right <= win2Right &&
+          currentCars[1].y >= zone2.y && car2Bottom <= win2Bottom
+        ) return true;
+      }
+
+      return false;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (gameState === "menu") {
+        drawMenu();
+      } else if (gameState === "playing") {
+        drawGame();
+      } else if (gameState === "win") {
+        drawWinScreen();
+      } else if (gameState === "lose") {
+        drawLoseScreen();
+      }
+    }
+
+    function drawMenu() {
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "white";
+      ctx.font = "50px Arial";
+      ctx.fillText("Car Parking Game", 220, 100);
+
+      drawButton(buttons.singlePlayer, "SinglePlayer");
+      drawButton(buttons.multiPlayer, "MultiPlayer");
+    }
+
+    function drawButton(button, text, x, y) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.fillRect(button.x, button.y, button.width, button.height);
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(button.x, button.y, button.width, button.height);
+      ctx.fillStyle = "white";
+      ctx.font = "24px Arial";
+      if (text == "QUIT") {
+        ctx.fillText(text, button.x + 22.5, button.y + 27.5);
+        return;
+      }
+      ctx.fillText(text, button.x + 60, button.y + 38);
+    }
+
+    function drawGame() {
+      ctx.drawImage(level === 1 ? images.backgroundSingle : images.backgroundMulti, 0, 0, canvas.width, canvas.height);
+      drawCars();
+      drawButton(buttons.quitButton, "QUIT");
+
+      // drawWinZones();
+      // drawObstacles();
+      // drawCarBoundingBoxes();
+    }
+
+
+    function drawWinScreen() {
+      ctx.fillStyle = "green";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "white";
+      ctx.font = "50px Arial";
+
+      if (level === 1) {
+        ctx.fillText("You Parked Successfully!", 130, 200);
+      }
+      else if (level === 2) {
+        ctx.fillText(winnerText, 275, 200);
+      }
+
+      drawButton(buttons.backToMenu, "Back to Menu");
+      drawButton(buttons.tryAgain, "Try Again");
+
+
+    }
+
+    function drawLoseScreen() {
+      ctx.fillStyle = "red";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "white";
+      ctx.font = "50px Arial";
+      ctx.fillText("Game Over! You Crashed!", 100, 200);
+
+      drawButton(buttons.backToMenu, "Back to Menu");
+      drawButton(buttons.tryAgain, "Try Again");
+    }
+
+    function drawCars() {
+      for (const car of currentCars) {
+        ctx.save();
+        ctx.translate(car.x + car.width / 2, car.y + car.height / 2);
+        ctx.rotate(car.angle);
+        ctx.drawImage(car.image, -car.width / 2, -car.height / 2, car.width, car.height);
+        ctx.restore();
+      }
+    }
+
+    function pointInPolygon(point, polygon) {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+        const intersect = ((yi > point.y) !== (yj > point.y)) &&
+          (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 5;
+      ctx.strokeRect(0, 0, canvas.width, canvas.height);
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+
+    // Obstacles
+    const levelObstacles = {
+      1: [ // SinglePlayer
+        [
+          { x: 0, y: 217 }, { x: 104, y: 228 }, { x: 104, y: 310 },
+          { x: 65, y: 310 }, { x: 65, y: 418 }, { x: 350, y: 418 },
+          { x: 350, y: 470 }, { x: 0, y: 470 }
+        ],
+        [
+          { x: 345, y: 470 }, { x: 345, y: 215 }, { x: 427, y: 215 },
+          { x: 427, y: 230 }, { x: 500, y: 230 }, { x: 500, y: 418 },
+          { x: 565, y: 418 }, { x: 575, y: 470 },
+        ],
+        [
+          { x: 675, y: 470 }, { x: 675, y: 430 }, { x: 655, y: 430 },
+          { x: 655, y: 215 }, { x: 835, y: 215 }, { x: 835, y: 470 }
+        ],
+        [
+          { x: 0, y: 0 }, { x: 835, y: 0 }, { x: 835, y: 80 }, { x: 0, y: 80 }
+        ],
+        [
+          { x: 110, y: 330 }, { x: 160, y: 330 }, { x: 160, y: 410 },
+          { x: 110, y: 410 }
+        ],
+        [
+          { x: 660, y: 80 }, { x: 660, y: 150 }, { x: 675, y: 150 },
+          { x: 675, y: 220 }, { x: 835, y: 220 }, { x: 835, y: 80 }
+        ],
+        [
+          { x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 470 },
+          { x: 0, y: 470 }
+        ],
+        [
+          { x: 0, y: 470 }, { x: 0, y: 467 }, { x: 835, y: 467 },
+          { x: 835, y: 470 }
+        ]
+      ],
+      2: [ // MultiPlayer
+        [
+          { x: 0, y: 322 }, { x: 53, y: 322 }, { x: 53, y: 355 },
+          { x: 0, y: 355 }
+        ],
+        [
+          { x: 157, y: 470 }, { x: 157, y: 453 }, { x: 188, y: 400 },
+          { x: 190, y: 395 }, { x: 168, y: 340 }, { x: 155, y: 310 },
+          { x: 124, y: 265 }, { x: 120, y: 250 }, { x: 117, y: 243 },
+          { x: 130, y: 225 }, { x: 132, y: 224 }, { x: 137, y: 223 },
+          { x: 152, y: 223 }, { x: 160, y: 230 }, { x: 169, y: 240 },
+          { x: 169, y: 252 }, { x: 160, y: 258 }, { x: 192, y: 300 },
+          { x: 205, y: 330 }, { x: 210, y: 345 }, { x: 220, y: 365 },
+          { x: 227, y: 395 }, { x: 220, y: 410 }, { x: 213, y: 430 },
+          { x: 190, y: 470 }
+        ],
+        ////////
+        [
+          { x: 782, y: 322 }, { x: 835, y: 322 }, { x: 835, y: 355 },
+          { x: 782, y: 355 }
+        ],
+        //trees
+        [
+          { x: 330, y: 460 }, { x: 335, y: 80 }, { x: 505, y: 80 }, { x: 505, y: 455 }
+        ],
+        //2 cars
+        [
+          { x: 260, y: 260 }, { x: 260, y: 220 }, { x: 350, y: 220 }, { x: 350, y: 260 }
+        ],
+        [
+          { x: 500, y: 260 }, { x: 500, y: 220 }, { x: 580, y: 220 }, { x: 580, y: 260 }
+        ],
+        //yellow cars
+        [
+          { x: 110, y: 140 }, { x: 150, y: 80 }, { x: 195, y: 95 }, { x: 160, y: 155 }
+        ],
+        [
+          { x: 680, y: 80 }, { x: 725, y: 145 }, { x: 690, y: 158 }, { x: 640, y: 95 }
+        ],
+        //blue car area
+        [
+          { x: 645, y: 470 }, { x: 615, y: 410 }, { x: 610, y: 390 },
+          { x: 645, y: 300 }, { x: 685, y: 240 }, { x: 720, y: 260 },
+          { x: 670, y: 320 }, { x: 650, y: 400 }, { x: 685, y: 470 }
+        ],
+        [
+          { x: 666, y: 255 }, { x: 715, y: 255 }, { x: 715, y: 222 }, { x: 666, y: 222 }
+        ],
+        //top part
+        [
+          { x: 0, y: 0 }, { x: 835, y: 0 }, { x: 835, y: 80 }, { x: 0, y: 80 }
+        ],
+        //bottom part
+        [
+          { x: 0, y: 470 }, { x: 835, y: 470 }, { x: 835, y: 465 }, { x: 0, y: 465 }
+        ],
+        //left part
+        [
+          { x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 470 }, { x: 0, y: 470 }
+        ],
+        //right part
+        [
+          { x: 835, y: 0 }, { x: 830, y: 0 }, { x: 830, y: 470 }, { x: 835, y: 470 }
+        ]
+      ]
+    };
+
+    // Winzones
+    const levelWinZones = {
+      1: [{ x: 216, y: 311, width: 88, height: 100 }],
+      2: [
+        { x: 240, y: 370, width: 86, height: 100 },
+        { x: 511, y: 370, width: 86, height: 100 }
+      ]
+    };
+
+    function drawWinZones() {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 255, 0.4)';
+      for (const zone of winZones) {
+        ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+      }
+      ctx.restore();
+    }
+
+    function drawObstacles() {
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
+      for (const obstacle of obstacles) {
+        ctx.beginPath();
+        ctx.moveTo(obstacle[0].x, obstacle[0].y);
+        for (let i = 1; i < obstacle.length; i++) {
+          ctx.lineTo(obstacle[i].x, obstacle[i].y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawCarBoundingBoxes() {
+      ctx.save();
+      ctx.strokeStyle = 'yellow';
+      ctx.lineWidth = 2;
+
+      for (const car of currentCars) {
+        ctx.translate(car.x + car.width / 2, car.y + car.height / 2);
+        ctx.rotate(car.angle);
+
+        ctx.strokeRect(
+          -car.collisionWidth / 2,
+          -car.collisionHeight / 2,
+          car.collisionWidth,
+          car.collisionHeight
+        );
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+
+      ctx.restore();
+    }
+  </script>
+</body>
+
+</html>
